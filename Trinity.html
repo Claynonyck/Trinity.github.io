@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Trinity</title>
+    <style>
+        :root{
+            --bg:#121212;--panel:#181818;--muted:#9a9a9a;--accent:#1db954;--card:#1e1e1e
+        }
+        *{box-sizing:border-box}
+        html,body{height:100%;margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:var(--bg);color:#eee}
+
+        .app{display:flex;height:100vh;}
+        .sidebar{width:240px;background:#0f0f0f;padding:22px;border-right:1px solid #222;display:flex;flex-direction:column}
+        .brand{font-weight:700;font-size:18px;margin-bottom:18px;color:var(--accent)}
+        .nav{display:flex;flex-direction:column;gap:8px}
+        .nav button{background:transparent;border:none;color:#ddd;text-align:left;padding:10px;border-radius:8px;cursor:pointer;font-size:15px}
+        .nav button.active{background:#171717}
+
+        .library-box{margin-top:18px;padding-top:12px;border-top:1px solid #212121}
+        .upload-label{display:inline-block;padding:10px 12px;background:#111;border-radius:10px;cursor:pointer;border:1px dashed #2a2a2a; transition: all 0.2s;}
+        .upload-label:hover{border-color:var(--accent); background: #1a1a1a;}
+        .upload-input{display:none}
+        .library-list{margin-top:12px;max-height:38vh;overflow:auto;padding:0;list-style:none}
+        .library-list li{padding:8px;border-radius:8px;background:#121212;margin-bottom:8px;border:1px solid #222;cursor:pointer; transition: background 0.2s;}
+        .library-list li:hover{background:#1a1a1a;}
+        .library-list li small{display:block;color:var(--muted);font-size:12px}
+
+        .main{flex:1;display:flex;flex-direction:column}
+        .topbar{padding:18px 24px;border-bottom:1px solid #242424;display:flex;justify-content:space-between;align-items:center}
+        .title{font-size:20px}
+        .auth-info{font-size:12px; color: var(--muted); padding-right: 10px;}
+
+        .content{flex:1;overflow:auto;padding:22px}
+
+        .playlist{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+        .track{display:flex;justify-content:space-between;align-items:center;padding:12px;border-radius:10px;background:var(--card);border:1px solid #252525; cursor:pointer; transition: background 0.2s;}
+        .track:hover{background: #252525;}
+        .track .meta{display:flex;gap:12px;align-items:center}
+        .track .meta .thumb{width:48px;height:48px;border-radius:6px;background:linear-gradient(135deg,#222,#111);display:flex;align-items:center;justify-content:center;color:var(--muted)}
+        .track .meta .info{display:flex;flex-direction:column}
+        .track .meta .info .name{font-weight:600}
+        .track .meta .info .artist{font-size:13px;color:var(--muted)}
+        .track.active{outline:2px solid var(--accent); background: #222222;}
+
+        .volume{width:120px;}
+        .player-bar{height:110px;background:var(--panel);border-top:1px solid #252525;padding:14px 22px;display:flex;align-items:center;gap:18px}
+        .player-cover{width:70px;height:70px;border-radius:8px;background:#161616;display:flex;align-items:center;justify-content:center}
+        .player-controls{flex:1}
+        .controls{display:flex;align-items:center;gap:14px;margin-bottom:8px}
+        .controls button{background:transparent;border:none;color:#ddd;font-size:24px;cursor:pointer; transition: color 0.2s; padding: 4px; border-radius: 4px;}
+        .controls button:hover{color: var(--accent);}
+        .seek{width:100%; height: 6px; cursor: pointer;}
+        .small-muted{color:var(--muted);font-size:13px}
+
+        .library-main{max-width:900px;margin:0 auto}
+        .library-grid{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+        .file-row{display:flex;justify-content:space-between;align-items:center;padding:12px;border-radius:10px;background:#151515;border:1px solid #232323}
+        .btn{padding:8px 12px;border-radius:8px;border:none;cursor:pointer;font-weight: 500;}
+        .btn.ghost{background:transparent;border:1px solid #333;color:#ddd; transition: all 0.2s;}
+        .btn.ghost:hover{background: #333;}
+        .btn.primary{background:var(--accent);color:#061d0d; transition: all 0.2s;}
+        .btn.primary:hover{background: #159544;}
+        .btn.danger{background: #b91d1d; color: white;}
+
+        .status-box{
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 20px 30px;
+            border-radius: 12px;
+            z-index: 1000;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid var(--accent);
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media(max-width:880px){
+            .sidebar{display:none}
+            .app{flex-direction:column}
+            .player-bar{height:90px; padding: 10px 15px;}
+            .player-cover{width: 50px; height: 50px;}
+            .auth-info{display: none;}
+            .volume{display: none;}
+            .controls{gap: 10px;}
+            .controls button{font-size: 20px;}
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="brand">🎧 Trinity</div>
+            <nav class="nav">
+                <button id="navHome" class="active">Home (Playlist)</button>
+                <button id="navLibrary">Library (All Songs)</button>
+            </nav>
+
+            <div class="library-box">
+                <label class="upload-label">Upload New File
+                    <input id="sidebarUpload" class="upload-input" type="file" accept="audio/*" multiple />
+                </label>
+                <ul id="sidebarList" class="library-list"></ul>
+            </div>
+            
+            <div style="margin-top: auto; padding-top: 15px; border-top: 1px solid #212121;">
+                 <div id="authUserId" class="small-muted" style="word-break: break-all;">Local Storage (IndexedDB)</div>
+            </div>
+        </aside>
+
+        <main class="main">
+            <div class="topbar">
+                <div class="title">Home</div>
+                <div id="authStatus" class="auth-info">Browser Storage (Persistence Enabled)</div>
+            </div>
+
+            <div class="content">
+                <section id="homeView" class="home-view">
+                    <h2>Current Playlist (Local)</h2>
+                    <div class="playlist" id="playlistContainer">
+                        <div class="small-muted" id="loadingIndicatorHome">Loading library from IndexedDB...</div>
+                    </div>
+                </section>
+
+                <section id="libraryView" class="library-main" style="display:none">
+                    <h3>Library</h3>
+                    <div style="margin-top:14px">
+                        <label class="upload-label">Upload File to Library<input id="libUploadMain" class="upload-input" type="file" accept="audio/*" multiple /></label>
+                    </div>
+                    <div class="library-grid" id="libraryGrid"></div>
+                </section>
+            </div>
+
+            <div class="player-bar">
+                <div class="player-cover" id="playerCover">♪</div>
+                <div class="player-controls">
+                    <div class="controls">
+                        <input id="volume" class="volume" type="range" min="0" max="1" step="0.01" value="1">
+                        <button id="prevBtn" title="Previous">⏮</button>
+                        <button id="playBtn" title="Play/Pause">▶</button>
+                        <button id="nextBtn" title="Next">⏭</button>
+                        <button id="repeatBtn" title="Repeat Playlist">🔁</button>
+                        <div id="currentTitle" style="margin-left:10px;font-weight:600">No Song</div>
+                    </div>
+                    <input id="seek" class="seek" type="range" min="0" max="100" value="0">
+                    <div style="display:flex;justify-content:space-between;margin-top:6px"><span id="timeLeft" class="small-muted">0:00</span><span id="timeRight" class="small-muted">0:00</span></div>
+                </div>
+                <audio id="audioPlayer" preload="metadata" style="display:none"></audio>
+            </div>
+        </main>
+    </div>
+
+    <div id="statusBox" class="status-box">
+        <div class="spinner"></div>
+        <div id="statusText">Processing...</div>
+    </div>
+
+
+    <script>
+        let songs = [];
+        let playlist = [];
+        
+        let currentIndex = -1;
+        let repeat = false;
+        let db = null;
+
+        const navHome = document.getElementById('navHome');
+        const navLibrary = document.getElementById('navLibrary');
+        const homeView = document.getElementById('homeView');
+        const libraryView = document.getElementById('libraryView');
+        const sidebarUpload = document.getElementById('sidebarUpload');
+        const sidebarList = document.getElementById('sidebarList');
+        const libUploadMain = document.getElementById('libUploadMain');
+        const libraryGrid = document.getElementById('libraryGrid');
+        const playlistContainer = document.getElementById('playlistContainer');
+        const loadingIndicatorHome = document.getElementById('loadingIndicatorHome');
+        
+        const audio = document.getElementById('audioPlayer');
+        const playBtn = document.getElementById('playBtn');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const repeatBtn = document.getElementById('repeatBtn');
+        const currentTitle = document.getElementById('currentTitle');
+        const playerCover = document.getElementById('playerCover');
+        const seek = document.getElementById('seek');
+        const timeLeft = document.getElementById('timeLeft');
+        const timeRight = document.getElementById('timeRight');
+        const statusBox = document.getElementById('statusBox');
+        const statusText = document.getElementById('statusText');
+        const volume = document.getElementById('volume');
+
+        const DB_NAME = 'MusicPlayerDB';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'songs';
+
+        function openDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+                request.onupgradeneeded = (event) => {
+                    db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                        store.createIndex('name', 'name', { unique: false });
+                    }
+                };
+
+                request.onsuccess = (event) => {
+                    db = event.target.result;
+                    resolve(db);
+                };
+
+                request.onerror = (event) => {
+                    console.error("IndexedDB Error:", event.target.error);
+                    reject(new Error("Failed to open IndexedDB"));
+                };
+            });
+        }
+
+        function saveSongToDB(songData) {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                
+                const request = store.put(songData);
+
+                request.onsuccess = () => {
+                    resolve();
+                };
+
+                request.onerror = (event) => {
+                    console.error("Save failed:", event.target.error);
+                    reject(new Error("Failed to save song to DB"));
+                };
+            });
+        }
+
+        function loadSongsFromDB() {
+            return new Promise((resolve, reject) => {
+                if (!db) return resolve([]);
+                
+                const transaction = db.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                
+                const request = store.getAll();
+
+                request.onsuccess = (event) => {
+                    resolve(event.target.result);
+                };
+
+                request.onerror = (event) => {
+                    console.error("Load failed:", event.target.error);
+                    reject(new Error("Failed to load songs from DB"));
+                };
+            });
+        }
+        
+        function deleteSongFromDB(id) {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                
+                const request = store.delete(id);
+
+                request.onsuccess = () => {
+                    resolve();
+                };
+
+                request.onerror = (event) => {
+                    console.error("Delete failed:", event.target.error);
+                    reject(new Error("Failed to delete song from DB"));
+                };
+            });
+        }
+
+        function fmt(s){
+            if(isNaN(s) || s < 0) return '0:00';
+            const m = Math.floor(s/60); 
+            const sec = Math.floor(s%60).toString().padStart(2,'0');
+            return m+':'+sec;
+        }
+
+        function showStatus(text, show) {
+            statusText.innerText = text;
+            statusBox.style.display = show ? 'flex' : 'none';
+        }
+
+        function getAudioDuration(file) {
+            return new Promise((resolve, reject) => {
+                const tempAudio = document.createElement('audio');
+                tempAudio.preload = 'metadata';
+                const tempURL = URL.createObjectURL(file);
+                
+                tempAudio.onloadedmetadata = () => {
+                    resolve(tempAudio.duration);
+                    URL.revokeObjectURL(tempURL);
+                };
+                tempAudio.onerror = (e) => {
+                    console.error("Failed to load audio metadata for duration calculation.", e);
+                    URL.revokeObjectURL(tempURL);
+                    resolve(0);
+                };
+                tempAudio.src = tempURL;
+            });
+        }
+
+        async function handleFiles(fileList){
+            if (fileList.length === 0) return;
+
+            loadingIndicatorHome.style.display = 'none';
+
+            for(const file of fileList){
+                showStatus(`Processing: ${file.name}`, true);
+                try {
+                    const duration = await getAudioDuration(file);
+
+                    const songData = {
+                        id: crypto.randomUUID(),
+                        name: file.name.replace(/\.[^/.]+$/, ""),
+                        artist: 'Local IndexedDB', 
+                        file: file,
+                        duration: duration,
+                    };
+                    
+                    await saveSongToDB(songData);
+
+                    songs.push(songData); 
+                    playlist = [...songs];
+                    
+                    renderLibrary();
+                    renderSidebarList();
+                    renderPlaylist();
+                    
+                    if (currentIndex === -1 && songs.length > 0) {
+                        loadSong(0);
+                        audio.pause();
+                    }
+                    
+                    showStatus(`File ${file.name} saved to IndexedDB!`, false);
+
+                } catch(e) {
+                    console.error("Local file processing failed:", e);
+                    showStatus(`File processing error ${file.name}: ${e.message}`, false);
+                }
+            }
+        }
+        
+        async function deleteSong(song) {
+            if (!song || !song.id) return;
+
+            const index = songs.findIndex(s => s.id === song.id);
+
+            if (index !== -1) {
+                try {
+                    await deleteSongFromDB(song.id);
+                    
+                    songs.splice(index, 1);
+                    playlist = [...songs]; 
+                    
+                    renderLibrary();
+                    renderSidebarList();
+                    renderPlaylist();
+
+                    if (index === currentIndex) {
+                        currentIndex = -1; 
+                        audio.pause();
+                        playBtn.innerText='▶';
+                        if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
+                        if (songs.length > 0) {
+                            loadSong(0);
+                            audio.pause();
+                        } else {
+                            loadSong(-1);
+                        }
+                    } else if (index < currentIndex) {
+                        currentIndex--;
+                    }
+                    
+                    showStatus(`Deleted ${song.name} from IndexedDB.`, false);
+                } catch (e) {
+                    showStatus(`Error deleting ${song.name}: ${e.message}`, false);
+                }
+            }
+        }
+
+        sidebarUpload.addEventListener('change', (e) => handleFiles(e.target.files));
+        libUploadMain.addEventListener('change', (e) => handleFiles(e.target.files));
+        
+        const libMain = libraryView;
+        libMain.addEventListener('dragover', e=>{ e.preventDefault(); libMain.style.opacity=0.95 });
+        libMain.addEventListener('dragleave', e=>{ libMain.style.opacity=1 });
+        libMain.addEventListener('drop', e=>{ e.preventDefault(); libMain.style.opacity=1; handleFiles(e.dataTransfer.files) });
+
+        function renderSidebarList(){
+            sidebarList.innerHTML = '';
+            if (songs.length === 0) {
+                 sidebarList.innerHTML = '<li><small>No songs saved.</small></li>';
+                 return;
+            }
+            songs.forEach((it, idx)=>{
+                const li = document.createElement('li');
+                li.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><span>${it.name}</span><small>${fmt(it.duration)}</small></div>`;
+                li.onclick = ()=>{ playSong(idx); showView('home'); }
+                sidebarList.appendChild(li);
+            });
+        }
+
+        function renderLibrary(){
+            libraryGrid.innerHTML='';
+            if (songs.length === 0) {
+                libraryGrid.innerHTML = '<div class="small-muted" style="text-align:center; padding: 20px;">No songs saved. Please upload some!</div>';
+                return;
+            }
+            songs.forEach((it, idx)=>{
+                const row = document.createElement('div'); 
+                row.className='file-row';
+                
+                row.innerHTML = `
+                    <div>
+                        <strong>${it.name}</strong>
+                        <div class="small-muted">${it.artist} (Saved)</div>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                        <button class='btn ghost' data-idx='${idx}'>Play</button>
+                        <button class='btn danger' data-id='${it.id}'>Delete</button>
+                    </div>
+                `;
+                
+                const playBtn = row.querySelector('.btn.ghost');
+                const deleteBtn = row.querySelector('.btn.danger');
+                
+                playBtn.onclick = ()=>{ playSong(idx); showView('home'); }
+                
+                if (deleteBtn) {
+                    deleteBtn.onclick = () => {
+                        deleteSong(it);
+                    };
+                }
+                libraryGrid.appendChild(row);
+            });
+        }
+
+        function renderPlaylist(){
+            playlistContainer.innerHTML='';
+            const activeList = songs; 
+            
+            if(activeList.length===0){ 
+                playlistContainer.innerHTML='<div class="small-muted" style="text-align:center; padding: 20px;">Playlist is empty. Upload files in the Library or sidebar.</div>'; 
+                return 
+            }
+            
+            activeList.forEach((s, i)=>{
+                const tr = document.createElement('div'); 
+                tr.className='track'+(i===currentIndex? ' active':'');
+                tr.setAttribute('data-index', i);
+                
+                tr.innerHTML = `
+                    <div class='meta'>
+                        <div class='thumb'>♪</div>
+                        <div class='info'>
+                            <div class='name'>${s.name}</div>
+                            <div class='artist'>${s.artist}</div>
+                        </div>
+                    </div>
+                    <div class='small-muted'>${fmt(s.duration)}</div>
+                `;
+                
+                tr.onclick = ()=>{ playSong(i); }
+                playlistContainer.appendChild(tr);
+            });
+        }
+        
+        let currentObjectURL = null;
+
+        function loadSong(i){
+            if(i === -1 || !songs[i]) {
+                currentIndex = -1;
+                if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
+                audio.src = '';
+                currentTitle.innerText = 'No Song';
+                timeRight.innerText = '0:00';
+                timeLeft.innerText = '0:00';
+                seek.value = 0;
+                Array.from(document.querySelectorAll('.track')).forEach(el => el.classList.remove('active'));
+                return;
+            }
+            
+            currentIndex = i;
+            const song = songs[i];
+            
+            if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
+            
+            currentObjectURL = URL.createObjectURL(song.file);
+            audio.src = currentObjectURL; 
+            
+            currentTitle.innerText = song.name;
+            
+            Array.from(document.querySelectorAll('.track')).forEach((el,idx)=>{
+                el.classList.toggle('active', idx===i);
+            });
+            timeRight.innerText = fmt(song.duration);
+        }
+
+        function playSong(i){ 
+            loadSong(i); 
+            audio.play(); 
+            playBtn.innerText='⏸'; 
+        }
+
+        playBtn.onclick = ()=>{
+            if(audio.src === '' || currentIndex === -1) {
+                if (songs.length > 0) playSong(0);
+                return;
+            }
+            if(audio.paused){ 
+                audio.play(); playBtn.innerText='⏸'; 
+            } else { 
+                audio.pause(); playBtn.innerText='▶'; 
+            }
+        }
+        
+        prevBtn.onclick = ()=>{
+            if(songs.length===0) return;
+            currentIndex = (currentIndex-1 + songs.length) % songs.length; 
+            playSong(currentIndex);
+        }
+        
+        nextBtn.onclick = ()=>{
+            if(songs.length===0) return;
+            currentIndex = (currentIndex+1) % songs.length; 
+            playSong(currentIndex);
+        }
+        
+        repeatBtn.onclick = ()=>{ 
+            repeat = !repeat; 
+            repeatBtn.style.color = repeat? 'var(--accent)':'#ddd'; 
+        }
+
+        volume.oninput = ()=>{ audio.volume = volume.value }
+
+        audio.ontimeupdate = ()=>{
+            if(isNaN(audio.duration) || audio.duration <= 0) return;
+            const pct = (audio.currentTime/audio.duration)*100; 
+            seek.value = pct; 
+            timeLeft.innerText = fmt(audio.currentTime); 
+        }
+        
+        seek.oninput = ()=>{
+            if(isNaN(audio.duration) || audio.duration <= 0) return; 
+            audio.currentTime = (seek.value/100)*audio.duration;
+        }
+
+        audio.onended = ()=>{
+            if (currentObjectURL) {
+                URL.revokeObjectURL(currentObjectURL);
+                currentObjectURL = null;
+            }
+            
+            if(repeat){ 
+                audio.currentTime = 0; 
+                audio.play(); 
+                return 
+            }
+            if(songs.length===0) return;
+            
+            let nextIndex = (currentIndex + 1);
+            if(nextIndex < songs.length){
+                playSong(nextIndex);
+            } else {
+                loadSong(-1);
+            }
+        }
+
+        navHome.onclick = () => { showView('home'); }
+        navLibrary.onclick = () => { showView('library'); }
+
+        function showView(name){
+            document.querySelector('.title').innerText = name === 'home' ? 'Home (Playlist)' : 'Library (Global)';
+            homeView.style.display = name === 'home' ? 'block' : 'none';
+            libraryView.style.display = name === 'library' ? 'block' : 'none';
+            navHome.classList.toggle('active', name === 'home'); 
+            navLibrary.classList.toggle('active', name === 'library');
+        }
+
+        async function initApp() {
+            showStatus("Opening IndexedDB...", true);
+            try {
+                await openDB();
+                showStatus("Loading Library...", true);
+                
+                const loadedSongs = await loadSongsFromDB();
+                songs = loadedSongs;
+                playlist = [...songs];
+                
+                renderLibrary();
+                renderSidebarList();
+                renderPlaylist();
+
+                if (songs.length > 0) {
+                    loadSong(0);
+                    loadingIndicatorHome.style.display = 'none';
+                } else {
+                    loadingIndicatorHome.innerText = 'No songs saved. Please upload some!';
+                    loadingIndicatorHome.style.display = 'block';
+                }
+                
+                showStatus("Ready!", false);
+                showView('home');
+
+            } catch(e) {
+                console.error("Initialization Failed:", e);
+                showStatus(`DB INITIALIZATION ERROR: ${e.message}. App will run without persistence.`, false);
+            }
+        }
+        
+        window.onload = initApp;
+    </script>
+</body>
+</html>
