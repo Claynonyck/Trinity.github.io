@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Trinity - Trình phát nhạc Cloud Persistence</title>
+    <title>Trinity - Trình phát nhạc Cloud Storage</title>
     <style>
         :root{
             --bg:#121212;--panel:#181818;--muted:#9a9a9a;--accent:#1db954;--card:#1e1e1e;--warning:#ffcc00
@@ -26,7 +26,6 @@
         .library-list li{padding:8px;border-radius:8px;background:#121212;margin-bottom:8px;border:1px solid #222;cursor:pointer; transition: background 0.2s;}
         .library-list li:hover{background:#1a1a1a;}
         .library-list li small{display:block;font-size:12px}
-        .library-list li.local-missing small{color: var(--warning); font-weight: 500;}
         .library-list li small.local-ok{color:var(--muted);}
 
         .main{flex:1;display:flex;flex-direction:column}
@@ -45,7 +44,6 @@
         .track .meta .info .name{font-weight:600}
         .track .meta .info .artist{font-size:13px;color:var(--muted)}
         .track.active{outline:2px solid var(--accent); background: #222222;}
-        .track.unplayable{opacity: 0.6; cursor: not-allowed; outline: 1px dashed var(--warning);}
 
         .volume{width:120px;}
         .player-bar{height:110px;background:var(--panel);border-top:1px solid #252525;padding:14px 22px;display:flex;align-items:center;gap:18px}
@@ -113,14 +111,14 @@
 <body>
     <div class="app">
         <aside class="sidebar">
-            <div class="brand">🎧 MusicApp (Cloud)</div>
+            <div class="brand">🎧 MusicApp (Cloud Storage)</div>
             <nav class="nav">
                 <button id="navHome" class="active">Playlist (Công cộng)</button>
                 <button id="navLibrary">Thư viện (Quản lý File)</button>
             </nav>
 
             <div class="library-box">
-                <label class="upload-label">Tải file mới (Lưu Cloud Metadata Công cộng & Local File)
+                <label class="upload-label">Tải file mới (Lưu Cloud Storage & Metadata)
                     <input id="sidebarUpload" class="upload-input" type="file" accept="audio/*" multiple />
                 </label>
                 <ul id="sidebarList" class="library-list"></ul>
@@ -140,8 +138,8 @@
             <div class="content">
                 <section id="homeView" class="home-view">
                     <h2>Danh sách bài hát được chia sẻ công cộng (Public Playlist)</h2>
-                    <div class="small-muted" style="color: var(--warning);">
-                        LƯU Ý QUAN TRỌNG: Đây là danh sách công cộng. File nhạc thực tế (Blob) chỉ được lưu cục bộ (IndexedDB) trên thiết bị của người tải lên. Bạn chỉ có thể phát các bài hát có dấu "ĐÃ CÓ FILE CỤC BỘ".
+                    <div class="small-muted" style="color: var(--accent);">
+                        TOÀN BỘ FILE ĐƯỢC LƯU TRÊN CLOUD STORAGE VÀ CÓ THỂ PHÁT TỪ MỌI THIẾT BỊ.
                     </div>
                     <div class="playlist" id="playlistContainer">
                         <div class="small-muted" id="loadingIndicatorHome">Đang chờ xác thực Firebase...</div>
@@ -184,7 +182,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, collection, addDoc, setDoc, deleteDoc, onSnapshot, query, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, collection, setDoc, deleteDoc, onSnapshot, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
         // --- Firebase Globals and Setup ---
         const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
@@ -193,34 +192,41 @@
         let app;
         let db;
         let auth;
+        let storage;
         let userId = null;
         let isAuthReady = false;
-
+        
+        // Check config and initialize services
         if (Object.keys(firebaseConfig).length > 0) {
-            app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                storage = getStorage(app); 
+                setLogLevel('debug'); // Set log level to debug for detailed output
+            } catch (e) {
+                console.error("LỖI KHỞI TẠO FIREBASE: ", e);
+                // Services will remain undefined if initialization fails
+            }
         } else {
-            console.error("Firebase config is missing. Application will run in read-only mode.");
+            console.error("LỖI CẤU HÌNH: Firebase config is missing. Services not initialized.");
+            document.getElementById('authStatus').innerText = 'LỖI CẤU HÌNH (Không có Config)';
+            document.getElementById('loadingIndicatorHome').innerText = 'Vui lòng kiểm tra lại cấu hình Firebase.';
+            document.getElementById('authUserId').innerText = 'Không thể kết nối Cloud.';
         }
 
-        // New public collection path for shared metadata
+        // Public collection path for shared metadata
         const PUBLIC_SONGS_COLLECTION_PATH = `artifacts/${appId}/public/data/songs_public`;
         const getSongsCollectionPath = () => PUBLIC_SONGS_COLLECTION_PATH;
+        
+        // Storage path for public files
+        const PUBLIC_STORAGE_PATH = `artifacts/${appId}/public/files/music`;
 
-        // --- IndexedDB Globals for Local Blobs ---
-        const LOCAL_DB_NAME = 'MusicPlayerBlobCache';
-        const LOCAL_DB_VERSION = 1;
-        const LOCAL_STORE_NAME = 'songs_blob';
-        let localDB = null;
-
-        // --- App State ---
-        let songs = []; // Combined: Firestore Metadata + IndexedDB Blob
+        // --- App State and Elements ---
+        let songs = []; 
         let currentIndex = -1;
         let repeat = false;
-        let currentObjectURL = null;
-
-        // --- Elements ---
+        
         const navHome = document.getElementById('navHome');
         const navLibrary = document.getElementById('navLibrary');
         const homeView = document.getElementById('homeView');
@@ -280,128 +286,55 @@
             });
         }
         
-        // --- IndexedDB (Local Blob Cache) Functions ---
-
-        function openLocalDB() {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open(LOCAL_DB_NAME, LOCAL_DB_VERSION);
-
-                request.onupgradeneeded = (event) => {
-                    localDB = event.target.result;
-                    if (!localDB.objectStoreNames.contains(LOCAL_STORE_NAME)) {
-                        localDB.createObjectStore(LOCAL_STORE_NAME, { keyPath: 'id' });
-                    }
-                };
-
-                request.onsuccess = (event) => {
-                    localDB = event.target.result;
-                    resolve(localDB);
-                };
-
-                request.onerror = (event) => {
-                    console.error("IndexedDB Error:", event.target.error);
-                    reject(new Error("Failed to open IndexedDB"));
-                };
-            });
-        }
-
-        function saveBlobToLocalDB(id, fileBlob) {
-            return new Promise((resolve, reject) => {
-                if (!localDB) return reject(new Error("Local DB not ready"));
-                const transaction = localDB.transaction([LOCAL_STORE_NAME], 'readwrite');
-                const store = transaction.objectStore(LOCAL_STORE_NAME);
-                
-                const request = store.put({ id: id, file: fileBlob });
-
-                request.onsuccess = () => resolve();
-                request.onerror = (event) => reject(new Error("Failed to save blob locally"));
-            });
-        }
-        
-        function getBlobFromLocalDB(id) {
-             return new Promise((resolve, reject) => {
-                if (!localDB) return resolve(null);
-                const transaction = localDB.transaction([LOCAL_STORE_NAME], 'readonly');
-                const store = transaction.objectStore(LOCAL_STORE_NAME);
-                
-                const request = store.get(id);
-
-                request.onsuccess = (event) => {
-                    resolve(event.target.result ? event.target.result.file : null);
-                };
-                request.onerror = (event) => reject(new Error("Failed to get blob locally"));
-            });
-        }
-
-        function deleteBlobFromLocalDB(id) {
-             return new Promise((resolve, reject) => {
-                if (!localDB) return resolve();
-                const transaction = localDB.transaction([LOCAL_STORE_NAME], 'readwrite');
-                const store = transaction.objectStore(LOCAL_STORE_NAME);
-                
-                const request = store.delete(id);
-
-                request.onsuccess = () => resolve();
-                request.onerror = (event) => reject(new Error("Failed to delete blob locally"));
-            });
-        }
-
-        // --- Firestore (Cloud Metadata) Functions ---
+        // --- Firebase Storage and Firestore Functions (Guarded) ---
 
         async function saveSongMetadataToCloud(metadata) {
-            if (!userId) throw new Error("User not authenticated for saving data.");
-            // Use public collection path
+            if (!userId || !db) throw new Error("Cloud features not ready.");
+            
             const songsRef = collection(db, getSongsCollectionPath()); 
             
-            // Set doc with the song's ID as the document ID
             await setDoc(doc(songsRef, metadata.id), {
                 id: metadata.id,
                 name: metadata.name,
                 artist: metadata.artist,
                 duration: metadata.duration,
+                downloadURL: metadata.downloadURL, 
+                storagePath: metadata.storagePath, 
                 timestamp: Date.now(),
-                uploaderId: userId // Store the user ID for attribution
+                uploaderId: userId 
             });
         }
 
         async function deleteSongMetadataFromCloud(id) {
-            if (!userId) throw new Error("User not authenticated for deleting data.");
-            // Use public collection path
+            if (!userId || !db) throw new Error("Cloud features not ready.");
+            
             const docRef = doc(db, getSongsCollectionPath(), id);
             await deleteDoc(docRef);
         }
         
+        async function deleteSongFileFromStorage(storagePath) {
+             if (!storagePath || !storage) return;
+             
+             const fileRef = ref(storage, storagePath);
+             await deleteObject(fileRef);
+        }
+        
         function setupFirestoreListener() {
-            if (!isAuthReady) return; // Only need to check if Firebase is ready
+            if (!isAuthReady || !db) return; // Guard clause
             
             loadingIndicatorHome.innerText = 'Đang tải danh sách bài hát công cộng từ Cloud...';
             
-            // Query public collection
             const q = query(collection(db, getSongsCollectionPath())); 
             
             onSnapshot(q, async (snapshot) => {
                 loadingIndicatorHome.style.display = 'none';
                 
-                const cloudMetadata = snapshot.docs.map(d => d.data());
-                
-                // Fetch local blobs and combine with cloud metadata
-                const combinedSongs = [];
-                for (const meta of cloudMetadata) {
-                    const fileBlob = await getBlobFromLocalDB(meta.id);
-                    // Add the file to the song object if available locally
-                    combinedSongs.push({
-                        ...meta,
-                        file: fileBlob 
-                    });
-                }
-                
-                songs = combinedSongs;
+                songs = snapshot.docs.map(d => d.data());
                 
                 renderLibrary();
                 renderSidebarList();
                 renderPlaylist();
                 
-                // If the currently playing song was deleted or index changed, update the player state
                 if (currentIndex !== -1 && (!songs[currentIndex] || songs[currentIndex].id !== songs[currentIndex].id)) {
                     if (songs.length > 0) {
                         loadSong(0);
@@ -419,9 +352,9 @@
         // --- File Management & Upload ---
 
         async function handleFiles(fileList){
-            if (!userId) {
-                console.error("Authentication not ready. Cannot upload.");
-                showStatus("Chưa xác thực. Vui lòng đợi...", false);
+            if (!userId || !db || !storage) {
+                console.error("Cloud features not ready. Cannot upload.");
+                showStatus("Lỗi: Cloud chưa sẵn sàng để tải lên (Kiểm tra Console).", false);
                 return;
             }
             if (fileList.length === 0) return;
@@ -429,25 +362,29 @@
             loadingIndicatorHome.style.display = 'none';
 
             for(const file of fileList){
-                showStatus(`Đang xử lý: ${file.name}`, true);
+                showStatus(`Đang xử lý: ${file.name} (Tải lên Storage...)`, true);
                 try {
                     const id = crypto.randomUUID();
                     const duration = await getAudioDuration(file);
+                    
+                    const storagePath = `${PUBLIC_STORAGE_PATH}/${id}/${file.name}`;
+                    const fileRef = ref(storage, storagePath);
+                    const uploadResult = await uploadBytes(fileRef, file);
+                    
+                    const downloadURL = await getDownloadURL(uploadResult.ref);
 
                     const metadata = {
                         id: id,
                         name: file.name.replace(/\.[^/.]+$/, ""),
-                        artist: 'Local Upload', 
+                        artist: 'Cloud Upload', 
                         duration: duration,
+                        downloadURL: downloadURL,
+                        storagePath: storagePath
                     };
                     
-                    // 1. Save File/Blob to Local IndexedDB
-                    await saveBlobToLocalDB(id, file);
-
-                    // 2. Save Metadata to Cloud Firestore (Public)
                     await saveSongMetadataToCloud(metadata);
 
-                    showStatus(`Đã lưu metadata lên Cloud (Công cộng) và file cục bộ: ${file.name}`, false);
+                    showStatus(`Đã tải file lên Cloud Storage và lưu metadata lên Cloud Firestore: ${file.name}`, false);
 
                 } catch(e) {
                     console.error("File processing failed:", e);
@@ -457,22 +394,15 @@
         }
         
         async function deleteSong(song) {
-            if (!song || !song.id) return;
+            if (!song || !song.id || !db || !storage) return;
             
-            // Only allow the original uploader (or admin) to delete, but since we are anonymous, 
-            // we will just allow anyone with the current userId to delete for simplicity in this sandbox env.
-            // In a real app, you'd check if song.uploaderId === userId.
-
             try {
-                showStatus(`Đang xóa ${song.name}...`, true);
+                showStatus(`Đang xóa ${song.name} khỏi Storage và Cloud...`, true);
                 
-                // 1. Delete Metadata from Cloud Firestore (Public)
+                await deleteSongFileFromStorage(song.storagePath);
                 await deleteSongMetadataFromCloud(song.id);
                 
-                // 2. Delete File/Blob from Local IndexedDB
-                await deleteBlobFromLocalDB(song.id);
-                
-                showStatus(`Đã xóa ${song.name} khỏi Cloud và thiết bị này.`, false);
+                showStatus(`Đã xóa ${song.name} hoàn toàn khỏi Cloud.`, false);
             } catch (e) {
                 showStatus(`Lỗi khi xóa ${song.name}: ${e.message}`, false);
             }
@@ -487,7 +417,7 @@
         libMain.addEventListener('dragleave', e=>{ libMain.style.opacity=1 });
         libMain.addEventListener('drop', e=>{ e.preventDefault(); libMain.style.opacity=1; handleFiles(e.dataTransfer.files) });
 
-        // --- UI Renders ---
+        // --- UI Renders (same as before) ---
         
         function renderSidebarList(){
             sidebarList.innerHTML = '';
@@ -496,18 +426,9 @@
                  return;
             }
             songs.forEach((it, idx)=>{
-                const isLocal = !!it.file;
                 const li = document.createElement('li');
-                li.className = isLocal ? '' : 'local-missing';
-                const statusClass = isLocal ? 'local-ok' : 'local-missing';
-
-                li.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><span>${it.name}</span><small class="${statusClass}">${isLocal ? fmt(it.duration) : 'Thiếu File cục bộ'}</small></div>`;
-                
-                if (isLocal) {
-                    li.onclick = ()=>{ playSong(idx); showView('home'); }
-                } else {
-                     li.title = "File nhạc không có trên thiết bị này.";
-                }
+                li.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><span>${it.name}</span><small class="local-ok">${fmt(it.duration)}</small></div>`;
+                li.onclick = ()=>{ playSong(idx); showView('home'); }
                 sidebarList.appendChild(li);
             });
         }
@@ -519,34 +440,33 @@
                 return;
             }
             songs.forEach((it, idx)=>{
-                const isLocal = !!it.file;
                 const row = document.createElement('div'); 
                 row.className='file-row';
                 
                 const uploaderInfo = it.uploaderId 
                     ? `Tải lên bởi: ${it.uploaderId.substring(0, 8)}...`
                     : 'Tải lên bởi: Không rõ';
+                    
+                const isUploader = it.uploaderId === userId;
 
                 row.innerHTML = `
                     <div>
                         <strong>${it.name}</strong>
                         <div class="small-muted">${uploaderInfo}</div>
-                        <div style="font-size: 13px; color: ${isLocal ? 'var(--accent)' : 'var(--warning)'}">${isLocal ? 'ĐÃ CÓ FILE CỤC BỘ' : 'THIẾU FILE CỤC BỘ'}</div>
+                        <div style="font-size: 13px; color: var(--accent);">ĐÃ LƯU TRÊN CLOUD STORAGE</div>
                     </div>
                     <div style="display:flex;gap:8px">
-                        <button class='btn ghost' data-idx='${idx}' ${isLocal ? '' : 'disabled'}>Phát</button>
-                        <button class='btn danger' data-id='${it.id}'>Xóa (Cloud & Local)</button>
+                        <button class='btn ghost' data-idx='${idx}'>Phát</button>
+                        <button class='btn danger' data-id='${it.id}' ${isUploader ? '' : 'disabled'} title="${isUploader ? 'Xóa file khỏi Cloud Storage và Metadata' : 'Chỉ người tải lên mới được xóa'}">Xóa</button>
                     </div>
                 `;
                 
                 const playBtn = row.querySelector('.btn.ghost');
                 const deleteBtn = row.querySelector('.btn.danger');
                 
-                if (isLocal) {
-                    playBtn.onclick = ()=>{ playSong(idx); showView('home'); }
-                }
+                playBtn.onclick = ()=>{ playSong(idx); showView('home'); }
                 
-                if (deleteBtn) {
+                if (isUploader && deleteBtn) {
                     deleteBtn.onclick = () => {
                         deleteSong(it);
                     };
@@ -565,9 +485,8 @@
             }
             
             activeList.forEach((s, i)=>{
-                const isLocal = !!s.file;
                 const tr = document.createElement('div'); 
-                tr.className='track'+(i===currentIndex? ' active':'') + (isLocal ? '' : ' unplayable');
+                tr.className='track'+(i===currentIndex? ' active':'');
                 tr.setAttribute('data-index', i);
                 
                 const uploaderInfo = s.uploaderId 
@@ -582,24 +501,19 @@
                             <div class='artist'>${uploaderInfo}</div>
                         </div>
                     </div>
-                    <div class='small-muted' style="color: ${isLocal ? 'var(--muted)' : 'var(--warning)'}">${isLocal ? fmt(s.duration) : 'Thiếu File'}</div>
+                    <div class='small-muted'>${fmt(s.duration)}</div>
                 `;
                 
-                if (isLocal) {
-                    tr.onclick = ()=>{ playSong(i); }
-                } else {
-                    tr.title = "Không thể phát: File nhạc không có trên thiết bị này.";
-                }
+                tr.onclick = ()=>{ playSong(i); }
                 playlistContainer.appendChild(tr);
             });
         }
         
-        // --- Player Logic ---
+        // --- Player Logic (same as before) ---
 
         function loadSong(i){
-            if(i === -1 || !songs[i] || !songs[i].file) {
+            if(i === -1 || !songs[i] || !songs[i].downloadURL) {
                 currentIndex = -1;
-                if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
                 audio.src = '';
                 currentTitle.innerText = 'Không có bài';
                 timeRight.innerText = '0:00';
@@ -612,10 +526,7 @@
             currentIndex = i;
             const song = songs[i];
             
-            if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
-            
-            currentObjectURL = URL.createObjectURL(song.file);
-            audio.src = currentObjectURL; 
+            audio.src = song.downloadURL; 
             
             currentTitle.innerText = song.name;
             
@@ -626,25 +537,21 @@
         }
 
         function playSong(i){ 
-            if (i >= 0 && i < songs.length && songs[i].file) {
+            if (i >= 0 && i < songs.length && songs[i].downloadURL) {
                 loadSong(i); 
                 audio.play(); 
                 playBtn.innerText='⏸'; 
             } else {
-                console.error("Cannot play song: File not available locally.");
+                console.error("Cannot play song: Download URL is missing.");
             }
         }
 
-        // --- Player Controls ---
+        // --- Player Controls (same as before) ---
         
         playBtn.onclick = ()=>{
             if(audio.src === '' || currentIndex === -1) {
                 if (songs.length > 0) {
-                    // Try to find the first playable song
-                    const firstPlayableIndex = songs.findIndex(s => s.file);
-                    if (firstPlayableIndex !== -1) {
-                        playSong(firstPlayableIndex);
-                    }
+                    playSong(0); 
                 }
                 return;
             }
@@ -657,28 +564,14 @@
         
         prevBtn.onclick = ()=>{
             if(songs.length===0) return;
-            // Find the previous playable song index
-            let newIndex = currentIndex;
-            do {
-                newIndex = (newIndex - 1 + songs.length) % songs.length;
-                if (songs[newIndex].file || newIndex === currentIndex) {
-                    playSong(newIndex);
-                    return;
-                }
-            } while (newIndex !== currentIndex);
+            const newIndex = (currentIndex - 1 + songs.length) % songs.length;
+            playSong(newIndex);
         }
         
         nextBtn.onclick = ()=>{
             if(songs.length===0) return;
-            // Find the next playable song index
-            let newIndex = currentIndex;
-            do {
-                newIndex = (newIndex + 1) % songs.length;
-                if (songs[newIndex].file || newIndex === currentIndex) {
-                    playSong(newIndex);
-                    return;
-                }
-            } while (newIndex !== currentIndex);
+            const newIndex = (currentIndex + 1) % songs.length;
+            playSong(newIndex);
         }
         
         repeatBtn.onclick = ()=>{ 
@@ -701,11 +594,6 @@
         }
 
         audio.onended = ()=>{
-            if (currentObjectURL) {
-                URL.revokeObjectURL(currentObjectURL);
-                currentObjectURL = null;
-            }
-            
             if(repeat){ 
                 audio.currentTime = 0; 
                 audio.play(); 
@@ -714,21 +602,11 @@
             
             if(songs.length===0) return;
             
-            // Find next playable song
-            let nextIndex = currentIndex;
-            do {
-                nextIndex = (nextIndex + 1) % songs.length;
-                if (songs[nextIndex].file) {
-                    playSong(nextIndex);
-                    return;
-                }
-                // Stop if we looped back to the current song and it's not playable (or currentIndex is -1)
-            } while (nextIndex !== currentIndex && currentIndex !== -1);
-            
-            loadSong(-1); 
+            let nextIndex = (currentIndex + 1) % songs.length;
+            playSong(nextIndex);
         }
 
-        // --- Navigation ---
+        // --- Navigation (same as before) ---
         
         navHome.onclick = () => { showView('home'); }
         navLibrary.onclick = () => { showView('library'); }
@@ -741,11 +619,18 @@
             navLibrary.classList.toggle('active', name === 'library');
         }
 
-        // --- Initial Load & Auth ---
+        // --- Initial Load & Auth (Fixed) ---
         async function initAuth() {
+            // Check if Firebase services were initialized successfully
+            if (!auth) {
+                authStatus.innerText = 'KHÔNG CÓ CLOUD (Check Console)';
+                authUserId.innerText = 'Ứng dụng chạy ở chế độ chỉ đọc.';
+                loadingIndicatorHome.innerText = 'Không thể tải Cloud Data (Thiếu Firebase Config).';
+                showStatus("Lỗi: Không tìm thấy cấu hình Firebase. Chỉ chạy giao diện.", false);
+                return;
+            }
+
             showStatus("Đang xác thực Firebase...", true);
-            
-            await openLocalDB(); // Open local IndexedDB regardless of auth state
             
             // Firebase Auth
             onAuthStateChanged(auth, async (user) => {
@@ -765,15 +650,18 @@
                         const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
                         if (token) {
                             await signInWithCustomToken(auth, token);
+                            console.log("Authentication successful with custom token.");
                         } else {
                             await signInAnonymously(auth);
+                            console.log("Authentication successful anonymously.");
                         }
                     } catch(e) {
                         console.error("Firebase Sign In Error:", e);
                         isAuthReady = true;
-                        authStatus.innerText = 'LỖI XÁC THỰC (Chỉ dùng Local)';
-                        authUserId.innerText = 'Không thể kết nối Cloud.';
-                        loadingIndicatorHome.innerText = 'Không thể tải Cloud Data. Vui lòng tải file cục bộ.';
+                        authStatus.innerText = 'LỖI XÁC THỰC (Vui lòng kiểm tra Console)';
+                        authUserId.innerText = `Lỗi: ${e.code}`;
+                        loadingIndicatorHome.innerText = 'Không thể tải Cloud Data.';
+                        showStatus(`Lỗi xác thực: ${e.code}`, false); 
                     }
                 }
             });
